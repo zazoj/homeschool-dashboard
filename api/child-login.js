@@ -38,19 +38,21 @@ export default async function handler(req, res) {
 
       const email = userData.email
 
-      const tokenRes = await fetch(`${SUPABASE_URL}/auth/v1/token`, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/x-www-form-urlencoded',
-    apikey: SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${SERVICE_ROLE_KEY}`
-  },
-  body: new URLSearchParams({
-    grant_type: 'password',
-    email,
-    password: String(pin)
-  })
-})
+      const tokenRes = await fetch(
+  `${SUPABASE_URL}/auth/v1/token?grant_type=password`,
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+    },
+    body: new URLSearchParams({
+      email,
+      password: String(pin)
+    })
+  }
+)
 
       const text = await tokenRes.text()
 
