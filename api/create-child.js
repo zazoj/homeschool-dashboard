@@ -19,10 +19,11 @@ export default async function handler(req, res) {
       })
     }
 
+    // Create child auth user
     const unique = Math.random().toString(36).substring(2, 8)
     const email = `child+${unique}@${new URL(SUPABASE_URL).hostname}`
 
-    const { data: user, error: createError } =
+    const { data, error: createError } =
       await supabaseAdmin.auth.admin.createUser({
         email,
         password: String(pin),
@@ -30,14 +31,24 @@ export default async function handler(req, res) {
         user_metadata: { display_name }
       })
 
-    if (createError || !user) {
+    if (createError) {
       return res.status(500).json({
-        error: createError?.message || 'Failed to create user'
+        error: createError.message || 'Failed to create user'
       })
     }
 
-    const childId = user.id
+    // The user object is inside data.user
+    const childUser = data.user
 
+    if (!childUser || !childUser.id) {
+      return res.status(500).json({
+        error: 'User was not created. No user ID returned.'
+      })
+    }
+
+    const childId = childUser.id
+
+    // Insert profile
     const { error: profileError } = await supabaseAdmin
       .from('user_profiles')
       .insert({
@@ -54,9 +65,14 @@ export default async function handler(req, res) {
     }
 
     return res.json({
-      child: { id: childId, email, display_name },
+      child: {
+        id: childId,
+        email,
+        display_name
+      },
       message: 'Child created'
     })
+
   } catch (err) {
     return res.status(500).json({ error: String(err) })
   }
