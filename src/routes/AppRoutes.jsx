@@ -8,8 +8,8 @@ export default function AppRoutes(){
   return (
     <Routes>
       <Route path="/auth" element={<Auth />} />
-      <Route path="/child-login" element={<ChildLogin />} />
       <Route path="/admin/children" element={<AdminChildren />} />
+      <Route path="/child-login" element={<ChildLogin />} />
       <Route path="/" element={<Dashboard />} />
     </Routes>
   )
