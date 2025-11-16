@@ -1,67 +1,66 @@
+// child-login serverless (Node)
+import fetch from 'node-fetch'
 import { createClient } from '@supabase/supabase-js'
+import bcrypt from 'bcryptjs'
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
 export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
 
-  // --- DEBUG MODE: allow GET so you can see errors directly ---
-  if (req.method === "GET") {
-    const dn = req.query.display_name
-    const pin = req.query.pin
+  try {
+    const { display_name, pin } = req.body
+    if (!display_name || !pin) return res.status(400).json({ error: 'display_name and pin required' })
 
-    if (!dn || !pin) {
-      return res.status(400).send("DEBUG: Missing display_name or pin")
+    const { data: profiles, error: pErr } = await supabaseAdmin
+      .from('user_profiles')
+      .select('id, display_name, pin_code')
+      .eq('display_name', display_name)
+      .limit(1)
+
+    if (pErr || !profiles || profiles.length === 0) {
+      return res.status(401).json({ error: 'Invalid username or PIN' })
     }
 
-    try {
-      const { data: profiles } = await supabaseAdmin
-        .from('user_profiles')
-        .select('id, display_name')
-        .eq('display_name', dn)
-        .limit(1)
+    const child = profiles[0]
 
-      if (!profiles || profiles.length === 0) {
-        return res.status(404).send("DEBUG: No profile found for " + dn)
-      }
+    // Verify pin against hashed pin_code if present
+    if (child.pin_code && !bcrypt.compareSync(String(pin), child.pin_code)) {
+      return res.status(401).json({ error: 'Invalid username or PIN' })
+    }
 
-      const child = profiles[0]
+    const { data: userData, error: uErr } = await supabaseAdmin.auth.admin.getUserById(child.id)
+    if (uErr || !userData) {
+      return res.status(401).json({ error: 'Child user not found' })
+    }
+    const email = userData.email
 
-      const { data: userData } =
-        await supabaseAdmin.auth.admin.getUserById(child.id)
-
-      if (!userData) {
-        return res.status(404).send("DEBUG: Auth user not found for ID " + child.id)
-      }
-
-      const email = userData.email
-
-      const tokenRes = await fetch(
-  `${SUPABASE_URL}/auth/v1/token?grant_type=password`,
-  {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      apikey: SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`
-    },
-    body: new URLSearchParams({
-      email,
-      password: String(pin)
+    const tokenRes = await fetch(`${SUPABASE_URL}/auth/v1/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        apikey: SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+      },
+      body: new URLSearchParams({
+        grant_type: 'password',
+        email,
+        password: String(pin)
+      })
     })
-  }
-)
 
-      const text = await tokenRes.text()
-
-      return res.send("DEBUG RESULT: " + text)
-
-    } catch (err) {
-      return res.status(500).send("DEBUG ERROR: " + err.toString())
+    const tokenData = await tokenRes.json()
+    if (!tokenRes.ok) {
+      return res.status(401).json({ error: tokenData?.error_description || tokenData?.error || 'Invalid credentials' })
     }
-  }
 
-  return res.status(400).send("DEBUG: Use GET with ?display_name=&pin=")
+    return res.json({ session: tokenData })
+
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: String(err) })
+  }
 }
