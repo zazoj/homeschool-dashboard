@@ -6,72 +6,60 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
 export default async function handler(req, res) {
-  try {
-    if (req.method !== 'POST') {
-      return res.status(400).send("ERROR: Must POST with JSON body")
+
+  // --- DEBUG MODE: allow GET so you can see errors directly ---
+  if (req.method === "GET") {
+    const dn = req.query.display_name
+    const pin = req.query.pin
+
+    if (!dn || !pin) {
+      return res.status(400).send("DEBUG: Missing display_name or pin")
     }
 
-    const { display_name, pin } = req.body
+    try {
+      const { data: profiles } = await supabaseAdmin
+        .from('user_profiles')
+        .select('id, display_name')
+        .eq('display_name', dn)
+        .limit(1)
 
-    if (!display_name || !pin) {
-      return res.status(400).send("ERROR: Missing name or pin")
-    }
+      if (!profiles || profiles.length === 0) {
+        return res.status(404).send("DEBUG: No profile found for " + dn)
+      }
 
-    // Find child profile
-    const { data: profiles, error: profileSearchError } = await supabaseAdmin
-      .from('user_profiles')
-      .select('id, display_name')
-      .eq('display_name', display_name)
-      .limit(1)
+      const child = profiles[0]
 
-    if (profileSearchError) {
-      return res.status(500).send("ERROR: profileSearchError: " + profileSearchError.message)
-    }
+      const { data: userData } =
+        await supabaseAdmin.auth.admin.getUserById(child.id)
 
-    if (!profiles || profiles.length === 0) {
-      return res.status(401).send("ERROR: No profile found")
-    }
+      if (!userData) {
+        return res.status(404).send("DEBUG: Auth user not found for ID " + child.id)
+      }
 
-    const child = profiles[0]
+      const email = userData.email
 
-    // Get user account
-    const { data: userData, error: userError } =
-      await supabaseAdmin.auth.admin.getUserById(child.id)
-
-    if (userError) {
-      return res.status(500).send("ERROR: userError: " + userError.message)
-    }
-
-    if (!userData) {
-      return res.status(401).send("ERROR: Auth user not found")
-    }
-
-    const email = userData.email
-
-    // Try to log in with PIN
-    const tokenRes = await fetch(`${SUPABASE_URL}/auth/v1/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        apikey: SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SERVICE_ROLE_KEY}`
-      },
-      body: new URLSearchParams({
-        grant_type: 'password',
-        email,
-        password: String(pin)
+      const tokenRes = await fetch(`${SUPABASE_URL}/auth/v1/token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+        },
+        body: new URLSearchParams({
+          grant_type: 'password',
+          email,
+          password: String(pin)
+        })
       })
-    })
 
-    const tokenData = await tokenRes.text() // <-- NOTICE: text not json
+      const text = await tokenRes.text()
 
-    if (!tokenRes.ok) {
-      return res.status(401).send("ERROR: " + tokenData)
+      return res.send("DEBUG RESULT: " + text)
+
+    } catch (err) {
+      return res.status(500).send("DEBUG ERROR: " + err.toString())
     }
-
-    return res.send("SUCCESS: " + tokenData)
-
-  } catch (err) {
-    return res.status(500).send("ERROR: " + err.toString())
   }
+
+  return res.status(400).send("DEBUG: Use GET with ?display_name=&pin=")
 }
